@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
-import Sidebar from "./components/Sidebar";
-import Navbar from "./components/Navbar";
+import MainLayout from "./components/MainLayout";
 
 import Dashboard from "./pages/Dashboard";
 import FarmingGuide from "./pages/FarmingGuide";
@@ -14,113 +13,91 @@ import Delivery from "./pages/Delivery";
 import Products from "./pages/Products";
 import Market from "./pages/Market";
 import Settings from "./pages/Settings";
+
 import Login from "./pages/Login";
-import Register from "./pages/Register";
+
 
 import "./App.css";
 
 function App() {
   return (
     <BrowserRouter>
+      <Routes>
 
-      <div className="app">
+        {/* =========================
+            Login & Register
+            No Sidebar / Navbar
+        ========================= */}
 
-        <Sidebar />
+        <Route path="/" element={<Login />} />
+        <Route path="/login" element={<Login />} />
 
-        <div className="main-area">
 
-          <Navbar />
+        {/* =========================
+            Main Website
+            Sidebar + Navbar
+        ========================= */}
 
-          <main className="page-content">
+        <Route element={<MainLayout />}>
 
-            <Routes>
+          <Route
+            path="/dashboard"
+            element={<Dashboard />}
+          />
 
-              {/* Dashboard */}
-              <Route
-                path="/"
-                element={<Login />}
-              />
+          <Route
+            path="/farming-guide"
+            element={<FarmingGuide />}
+          />
 
-              <Route
-                path="/dashboard"
-                element={<Dashboard />}
-              />
+          <Route
+            path="/crop-guide"
+            element={<CropGuide />}
+          />
 
-              {/* Farming */}
-              <Route
-                path="/farming-guide"
-                element={<FarmingGuide />}
-              />
+          <Route
+            path="/ai-assistant"
+            element={<AIAssistant />}
+          />
 
-              <Route
-                path="/crop-guide"
-                element={<CropGuide />}
-              />
+          <Route
+            path="/disease-detection"
+            element={<DiseaseDetection />}
+          />
 
-              {/* AI */}
-              <Route
-                path="/ai-assistant"
-                element={<AIAssistant />}
-              />
+          <Route
+            path="/irrigation"
+            element={<Irrigation />}
+          />
 
-              <Route
-                path="/disease-detection"
-                element={<DiseaseDetection />}
-              />
+          <Route
+            path="/fertilizer"
+            element={<Fertilizer />}
+          />
 
-              {/* Farm Management */}
-              <Route
-                path="/irrigation"
-                element={<Irrigation />}
-              />
+          <Route
+            path="/delivery"
+            element={<Delivery />}
+          />
 
-              <Route
-                path="/fertilizer"
-                element={<Fertilizer />}
-              />
+          <Route
+            path="/products"
+            element={<Products />}
+          />
 
-              {/* Delivery */}
-              <Route
-                path="/delivery"
-                element={<Delivery />}
-              />
+          <Route
+            path="/market"
+            element={<Market />}
+          />
 
-              {/* Shopping */}
-              <Route
-                path="/products"
-                element={<Products />}
-              />
+          <Route
+            path="/settings"
+            element={<Settings />}
+          />
 
-              {/* Market */}
-              <Route
-                path="/market"
-                element={<Market />}
-              />
+        </Route>
 
-              {/* Settings */}
-              <Route
-                path="/settings"
-                element={<Settings />}
-              />
-              {/* Authentication */}
-              <Route
-                path="/login"
-                element={<Login />}
-              />
-
-              <Route
-                path="/register"
-                element={<Register />}
-              />
-
-            </Routes>
-
-          </main>
-
-        </div>
-
-      </div>
-
+      </Routes>
     </BrowserRouter>
   );
 }
