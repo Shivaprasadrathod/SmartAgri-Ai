@@ -15,6 +15,7 @@ import {
 
 function Dashboard() {
   const navigate = useNavigate();
+  const user = JSON.parse(localStorage.getItem("user") || "null");
   const [marketplaceStats] = useState(() => {
     try {
       const listings = JSON.parse(localStorage.getItem("smartagri-listings") || "[]");
@@ -66,7 +67,7 @@ function Dashboard() {
       <section className="welcome-section">
         <p className="eyebrow">SmartAgri dashboard</p>
         <h1>
-          Good Morning, Farmer <span>👋</span>
+          Good Morning, {user?.name || "Farmer"} <span>👋</span>
         </h1>
         <p>Your farm performance is looking healthy and productive today.</p>
       </section>

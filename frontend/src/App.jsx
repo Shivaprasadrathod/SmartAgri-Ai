@@ -14,6 +14,8 @@ import Delivery from "./pages/Delivery";
 import Products from "./pages/Products";
 import Market from "./pages/Market";
 import Settings from "./pages/Settings";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
 
 import "./App.css";
 
@@ -36,7 +38,7 @@ function App() {
               {/* Dashboard */}
               <Route
                 path="/"
-                element={<Dashboard />}
+                element={<Login />}
               />
 
               <Route
@@ -99,6 +101,16 @@ function App() {
               <Route
                 path="/settings"
                 element={<Settings />}
+              />
+              {/* Authentication */}
+              <Route
+                path="/login"
+                element={<Login />}
+              />
+
+              <Route
+                path="/register"
+                element={<Register />}
               />
 
             </Routes>
