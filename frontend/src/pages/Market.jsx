@@ -1,275 +1,822 @@
 import { useEffect, useMemo, useState } from "react";
-import { Search, ShoppingBasket, TrendingUp, Truck } from "lucide-react";
+import {
+  Search,
+  TrendingUp,
+  TrendingDown,
+  Navigation,
+  MapPin,
+  Sparkles,
+  RefreshCw,
+  SlidersHorizontal,
+  ChevronRight,
+  ExternalLink,
+  ShieldCheck,
+  AlertCircle,
+  HelpCircle,
+  Calendar,
+  Layers,
+  ArrowRight
+} from "lucide-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  Legend
+} from "recharts";
+import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+import { api } from "../services/api";
 
-const fallbackImage = "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=80";
+// Fix standard Leaflet pin icons
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+});
 
-const produceCategories = ["Vegetables", "Fruits", "Grains", "Pulses", "Spices", "Oilseeds", "Cotton", "Sugarcane", "Organic Produce", "Other Farm Produce"];
-const demoPrices = [
-  { crop: "Tomato", price: 35, change: "+5%" },
-  { crop: "Rice", price: 48, change: "+2%" },
-  { crop: "Wheat", price: 30, change: "+3%" },
-  { crop: "Maize", price: 24, change: "-1%" },
-  { crop: "Potato", price: 27, change: "+4%" },
-];
+const DEFAULT_CENTER = [19.9975, 73.7898]; // Nashik coordinates
 
-const sampleListings = [
-  { id: "demo-tomato", name: "Fresh Tomatoes", category: "Vegetables", variety: "Local hybrid", quantity: 500, unit: "kg", price: 32, minOrder: 20, harvestDate: new Date().toISOString().slice(0, 10), grade: "A", description: "Fresh farm-produced tomatoes, sorted and ready for pickup.", location: "Nashik, Maharashtra", availableFrom: "Today", image: "https://images.unsplash.com/photo-1546094096-0df4bcaaa337?auto=format&fit=crop&w=900&q=80", seller: "Ramesh Farm", contact: "9876543210", status: "Active", views: 42, orders: 3, createdAt: "2026-09-30", demo: true },
-  { id: "demo-onion", name: "Red Onions", category: "Vegetables", variety: "Nashik red", quantity: 800, unit: "kg", price: 26, minOrder: 50, harvestDate: "2026-09-27", grade: "A", description: "Graded red onions from a local farm. Bulk orders welcome.", location: "Lasalgaon, Maharashtra", availableFrom: "Today", image: "https://images.unsplash.com/photo-1508747703725-719777637510?auto=format&fit=crop&w=900&q=80", seller: "Patil Growers", contact: "9876543211", status: "Active", views: 67, orders: 7, createdAt: "2026-09-29", demo: true },
-  { id: "demo-rice", name: "Indrayani Rice", category: "Grains", variety: "Indrayani", quantity: 1200, unit: "kg", price: 48, minOrder: 100, harvestDate: "2026-09-20", grade: "A", description: "Clean, farm-sourced rice available in bulk lots.", location: "Kolhapur, Maharashtra", availableFrom: "Oct 04", image: "https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?auto=format&fit=crop&w=900&q=80", seller: "Sahyadri Farmers Group", contact: "9876543212", status: "Active", views: 28, orders: 2, createdAt: "2026-09-28", demo: true },
-];
+const STATES = ["All States", "Maharashtra", "Karnataka", "Gujarat", "NCT of Delhi"];
 
-const emptyForm = { name: "", category: "Vegetables", variety: "", quantity: "", unit: "kg", price: "", minOrder: "", harvestDate: "", grade: "A", description: "", location: "", availableFrom: "Today", image: "", seller: "Ramesh Farm", contact: "", status: "Active", views: 0, orders: 0 };
+export default function Market() {
+  const [activeTab, setActiveTab] = useState("overview"); // overview, compare, nearest, advisory, listings
+  const [crops, setCrops] = useState([]);
+  const [selectedCrop, setSelectedCrop] = useState("Tomato");
+  const [selectedState, setSelectedState] = useState("All States");
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  // Data States
+  const [prices, setPrices] = useState([]);
+  const [trendData, setTrendData] = useState([]);
+  const [advisory, setAdvisory] = useState(null);
+  const [nearestMarkets, setNearestMarkets] = useState([]);
+  
+  // Loading & Error States
+  const [loadingPrices, setLoadingPrices] = useState(false);
+  const [loadingAdvisory, setLoadingAdvisory] = useState(false);
+  const [loadingNearest, setLoadingNearest] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
-const readStorage = (key, fallback) => {
-  try {
-    return JSON.parse(localStorage.getItem(key) || "null") ?? fallback;
-  } catch {
-    return fallback;
-  }
-};
+  // User location
+  const [userLocation, setUserLocation] = useState({
+    latitude: 19.9975,
+    longitude: 73.7898,
+    name: "Nashik, Maharashtra (Default / Detected)",
+  });
+  const [locationStatus, setLocationStatus] = useState("idle");
 
-const createOrderId = () => `AGR${Date.now().toString().slice(-6)}`;
+  // Load Crops
+  useEffect(() => {
+    api.getCrops()
+      .then((data) => {
+        if (data?.crops) setCrops(data.crops.map((c) => c.name));
+      })
+      .catch((e) => console.error(e));
+  }, []);
 
-function normalizeListing(listing) {
-  if (listing.name) return { ...emptyForm, ...listing };
-  return {
-    ...emptyForm,
-    ...listing,
-    name: listing.crop || "Farm produce",
-    category: "Vegetables",
-    quantity: Number.parseFloat(listing.quantity) || 0,
-    unit: "kg",
-    price: Number.parseFloat(String(listing.expectedPrice || listing.expected || "").replace(/[^\d.]/g, "")) || 0,
-    location: listing.location || "Local area",
-    seller: "Ramesh Farm",
-    contact: listing.contact || "",
-    image: "",
-    status: "Active",
+  // Fetch Market Prices
+  const loadPrices = async () => {
+    setLoadingPrices(true);
+    setErrorMsg("");
+    try {
+      const data = await api.getMarketPrices({
+        commodity: selectedCrop,
+        state: selectedState,
+      });
+      setPrices(data);
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("Failed to load real-time market data. Verify backend is running.");
+    } finally {
+      setLoadingPrices(false);
+    }
   };
-}
 
-function Market() {
-  const [query, setQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("All categories");
-  const [sortBy, setSortBy] = useState("newest");
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [activeTab, setActiveTab] = useState("Fresh From Farmers");
-  const [listings, setListings] = useState(() => readStorage("smartagri-listings", []).map(normalizeListing));
-  const [orders, setOrders] = useState(() => readStorage("smartagri-orders", []));
-  const [form, setForm] = useState(emptyForm);
-  const [message, setMessage] = useState("");
-  const [toast, setToast] = useState("");
+  // Fetch Trends & AI Advisory
+  const loadInsights = async () => {
+    setLoadingAdvisory(true);
+    try {
+      const [trendRes, advisoryRes] = await Promise.all([
+        api.getPriceTrends(selectedCrop, 14),
+        api.getAIRecommendation(selectedCrop),
+      ]);
+      setTrendData(trendRes.history || []);
+      setAdvisory(advisoryRes);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingAdvisory(false);
+    }
+  };
+
+  // Fetch Nearest Mandis
+  const loadNearest = async (lat, lon) => {
+    setLoadingNearest(true);
+    try {
+      const data = await api.getNearestMarkets(lat, lon, selectedCrop, 600);
+      setNearestMarkets(data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoadingNearest(false);
+    }
+  };
 
   useEffect(() => {
-    localStorage.setItem("smartagri-listings", JSON.stringify(listings));
-  }, [listings]);
+    loadPrices();
+    loadInsights();
+  }, [selectedCrop, selectedState]);
 
   useEffect(() => {
-    if (!toast) return undefined;
-    const timeout = setTimeout(() => setToast(""), 2400);
-    return () => clearTimeout(timeout);
-  }, [toast]);
+    loadNearest(userLocation.latitude, userLocation.longitude);
+  }, [userLocation, selectedCrop]);
 
-  const availableListings = useMemo(() => [...sampleListings, ...listings.filter((listing) => !listing.demo)], [listings]);
-  const filteredListings = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    const result = availableListings.filter((listing) => {
-      const searchable = `${listing.name} ${listing.category} ${listing.variety} ${listing.location} ${listing.seller} ${listing.grade}`.toLowerCase();
-      return (!term || searchable.includes(term)) && (categoryFilter === "All categories" || listing.category === categoryFilter);
-    });
-    if (sortBy === "low-high") return result.sort((a, b) => a.price - b.price);
-    if (sortBy === "high-low") return result.sort((a, b) => b.price - a.price);
-    if (sortBy === "popular") return result.sort((a, b) => b.views - a.views);
-    return result.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-  }, [availableListings, categoryFilter, query, sortBy]);
-
-  const myListings = listings.filter((listing) => !listing.demo);
-  const myOrders = orders.filter((order) => order.type === "Buying" || !order.type);
-
-  const resetForm = () => {
-    setForm(emptyForm);
-    setEditingId(null);
-  };
-
-  const handleSubmit = (event) => {
-    event.preventDefault();
-    const listing = {
-      ...form,
-      id: editingId || `listing-${Date.now()}`,
-      quantity: Number(form.quantity),
-      price: Number(form.price),
-      minOrder: Number(form.minOrder || 1),
-      createdAt: editingId ? listings.find((item) => item.id === editingId)?.createdAt : new Date().toISOString(),
-      demo: false,
-    };
-    setListings((current) => editingId
-      ? current.map((item) => item.id === editingId ? listing : item)
-      : [listing, ...current]);
-    setMessage(editingId ? "Your listing has been updated." : "Your product has been listed successfully.");
-    setShowForm(false);
-    resetForm();
-  };
-
-  const editListing = (listing) => {
-    setForm({ ...emptyForm, ...listing, quantity: String(listing.quantity), price: String(listing.price), minOrder: String(listing.minOrder) });
-    setEditingId(listing.id);
-    setShowForm(true);
-    document.getElementById("my-listings")?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const updateListing = (id, update) => setListings((current) => current.map((item) => item.id === id ? { ...item, ...update } : item));
-
-  const buyListing = (listing) => {
-    if (listing.status !== "Active") {
-      setToast("This listing is not currently available.");
+  // Request browser geolocation
+  const detectFarmerLocation = () => {
+    if (!navigator.geolocation) {
+      alert("Geolocation is not supported by your browser.");
       return;
     }
-    const quantity = Number(listing.minOrder) || 1;
-    const orderId = createOrderId();
-    const order = {
-      id: orderId,
-      type: "Buying",
-      product: listing.name,
-      quantity: `${quantity} ${listing.unit}`,
-      price: `₹${quantity * Number(listing.price)}`,
-      amount: quantity * Number(listing.price),
-      status: "Pickup Scheduled",
-      date: new Date().toLocaleDateString("en-IN"),
-      createdAt: new Date().toISOString(),
-      buyer: "Demo Buyer",
-      seller: listing.seller,
-      address: listing.location,
-      phone: listing.contact,
-      eta: "Farmer pickup to be coordinated",
-      driver: "Pickup partner to be assigned",
-      items: [{ ...listing, quantity }],
-      timeline: ["Pickup Scheduled", "Collected From Farmer", "In Transit", "Delivered"],
-    };
-    const nextOrders = [order, ...readStorage("smartagri-orders", [])];
-    localStorage.setItem("smartagri-orders", JSON.stringify(nextOrders));
-    setOrders(nextOrders);
-    if (!listing.demo) updateListing(listing.id, { orders: (listing.orders || 0) + 1 });
-    setToast(`Demo order #${orderId} placed. Contact ${listing.seller} to coordinate pickup.`);
+    setLocationStatus("detecting");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setUserLocation({
+          latitude,
+          longitude,
+          name: `GPS Location (${latitude.toFixed(2)}°, ${longitude.toFixed(2)}°)`,
+        });
+        setLocationStatus("success");
+      },
+      (err) => {
+        console.warn("Geolocation denied or error:", err);
+        setLocationStatus("denied");
+      },
+      { timeout: 8000 }
+    );
   };
 
-  const deleteListing = (id) => {
-    setListings((current) => current.filter((item) => item.id !== id));
-    setToast("Listing deleted.");
-  };
+  // Filtered prices
+  const filteredPrices = useMemo(() => {
+    return prices.filter((p) => {
+      const q = searchQuery.toLowerCase();
+      const matchQ =
+        !searchQuery ||
+        p.market?.toLowerCase().includes(q) ||
+        p.district?.toLowerCase().includes(q) ||
+        p.commodity?.toLowerCase().includes(q);
+      const matchState =
+        selectedState === "All States" || p.state === selectedState;
+      return matchQ && matchState;
+    });
+  }, [prices, searchQuery, selectedState]);
+
+  // Summary Metrics
+  const metrics = useMemo(() => {
+    if (!prices.length) return null;
+    const modalPrices = prices.map((p) => p.modal_price);
+    const maxP = Math.max(...modalPrices);
+    const minP = Math.min(...modalPrices);
+    const avgP = Math.round(modalPrices.reduce((a, b) => a + b, 0) / modalPrices.length);
+    const topMarket = prices.find((p) => p.modal_price === maxP);
+    const spread = maxP - minP;
+
+    return { maxP, minP, avgP, topMarket, spread, totalMandis: prices.length };
+  }, [prices]);
 
   return (
-    <div className="page-shell marketplace-page">
-      <div className="page-hero">
-        <div>
-          <div className="page-badge"><TrendingUp size={17} /> Farmer Marketplace</div>
-          <h1>Sell and source locally</h1>
-          <p>Buy direct from growers, publish your harvest, and manage marketplace orders.</p>
-        </div>
-        <img src="https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=900&q=80" alt="Fresh farm produce at a market" onError={(event) => { event.currentTarget.src = fallbackImage; }} />
-      </div>
+    <div className="page-shell" style={{ padding: "1.5rem", maxWidth: "1400px", margin: "0 auto" }}>
+      {/* Header Banner */}
+      <div
+        style={{
+          background: "linear-gradient(135deg, #166534 0%, #15803d 50%, #22c55e 100%)",
+          color: "#fff",
+          padding: "2rem",
+          borderRadius: "16px",
+          boxShadow: "0 10px 25px -5px rgba(22, 101, 52, 0.3)",
+          marginBottom: "1.75rem",
+        }}
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+          <div>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.2)", padding: "4px 12px", borderRadius: "20px", fontSize: "0.85rem", fontWeight: "600", marginBottom: "0.75rem" }}>
+              <ShieldCheck size={16} /> Official Mandi & APMC Network Live Intelligence
+            </div>
+            <h1 style={{ fontSize: "2rem", fontWeight: "800", margin: "0 0 0.5rem 0" }}>
+              Agricultural Market Price & AI Decision Hub
+            </h1>
+            <p style={{ margin: 0, opacity: 0.9, maxWidth: "700px", lineHeight: "1.5" }}>
+              Real-time APMC price analysis, nearest mandi locator with distance mapping, and algorithmic Buy/Sell/Hold signals to help farmers maximize crop returns.
+            </p>
+          </div>
 
-      <section className="panel market-data-panel">
-        <div className="section-header">
-          <div><p className="eyebrow">Today's farm market</p><h2>Reference prices</h2></div>
-          <span className="demo-label">Demo marketplace data · not live prices</span>
-        </div>
-        <div className="price-grid">
-          {demoPrices.map((item) => <article className="market-card" key={item.crop}>
-            <div className="market-header"><strong>{item.crop}</strong><span className={item.change.startsWith("+") ? "gain" : "loss"}>{item.change}</span></div>
-            <h3>₹{item.price}<small> / kg</small></h3><p>Example reference only</p>
-          </article>)}
-        </div>
-      </section>
-
-      <section className="panel" id="fresh-from-farmers">
-        <div className="section-header">
-          <div><p className="eyebrow">Buy direct from farmers</p><h2>Fresh From Farmers</h2></div>
-          <div className="marketplace-filters">
-            <div className="search-panel"><Search size={16} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search crop, variety, seller, location..." aria-label="Search farm produce" /></div>
-            <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="Filter produce category">
-              <option>All categories</option>{produceCategories.map((item) => <option key={item}>{item}</option>)}
-            </select>
-            <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="Sort farm produce">
-              <option value="newest">Newest</option><option value="low-high">Price: low to high</option><option value="high-low">Price: high to low</option><option value="popular">Popular</option>
-            </select>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <button
+              onClick={detectFarmerLocation}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                background: "#ffffff",
+                color: "#166534",
+                border: "none",
+                fontWeight: "700",
+                padding: "0.75rem 1.25rem",
+                borderRadius: "10px",
+                cursor: "pointer",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+              }}
+            >
+              <Navigation size={18} />
+              {locationStatus === "detecting" ? "Locating..." : "Use My GPS Location"}
+            </button>
+            <button
+              onClick={() => { loadPrices(); loadInsights(); }}
+              title="Refresh Live Data"
+              style={{
+                background: "rgba(255,255,255,0.25)",
+                color: "#fff",
+                border: "none",
+                padding: "0.75rem",
+                borderRadius: "10px",
+                cursor: "pointer",
+              }}
+            >
+              <RefreshCw size={20} className={loadingPrices ? "spin" : ""} />
+            </button>
           </div>
         </div>
 
-        <div className="listing-grid farmer-listing-grid">
-          {filteredListings.map((listing) => <article className="farmer-listing-card" key={listing.id}>
-            <img src={listing.image || fallbackImage} alt={listing.name} loading="lazy" onError={(event) => { event.currentTarget.src = fallbackImage; }} />
-            <div className="farmer-listing-body">
-              <div className="listing-topline"><span className="tag">{listing.category}</span><span className={`status-badge ${listing.status.toLowerCase()}`}>{listing.status}</span></div>
-              <h3>{listing.name}</h3>
-              <p className="product-variety">{listing.variety || "Farm produce"} · Grade {listing.grade || "Unspecified"}</p>
-              <div className="farmer-price-line"><strong>₹{listing.price} <small>/ {listing.unit}</small></strong><span>{listing.quantity} {listing.unit} available</span></div>
-              <p>{listing.description}</p>
-              <div className="seller-line"><strong>{listing.seller}</strong><span> · {listing.location}</span></div>
-              <div className="meta-row"><span>Harvest: {listing.harvestDate || "Not specified"}</span><span>Min. order {listing.minOrder || 1} {listing.unit}</span></div>
-              <div className="product-actions">
-                <button type="button" className="primary-btn small" disabled={listing.status !== "Active"} onClick={() => buyListing(listing)}>Buy · ₹{(Number(listing.minOrder || 1) * Number(listing.price)).toLocaleString("en-IN")}</button>
-                <button type="button" className="secondary-btn small" onClick={() => setToast(`Contact ${listing.seller}: ${listing.contact || "Contact details shared after order"}`)}>Contact Seller</button>
+        {/* Global Selectors */}
+        <div
+          style={{
+            marginTop: "1.5rem",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: "1rem",
+            background: "rgba(0, 0, 0, 0.15)",
+            padding: "1rem",
+            borderRadius: "12px",
+          }}
+        >
+          <div>
+            <label style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "700", opacity: 0.8, display: "block", marginBottom: "4px" }}>
+              Select Crop
+            </label>
+            <select
+              value={selectedCrop}
+              onChange={(e) => setSelectedCrop(e.target.value)}
+              style={{ width: "100%", padding: "0.6rem", borderRadius: "8px", border: "none", fontWeight: "600", color: "#111827", background: "#fff" }}
+            >
+              {crops.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "700", opacity: 0.8, display: "block", marginBottom: "4px" }}>
+              State Filter
+            </label>
+            <select
+              value={selectedState}
+              onChange={(e) => setSelectedState(e.target.value)}
+              style={{ width: "100%", padding: "0.6rem", borderRadius: "8px", border: "none", fontWeight: "600", color: "#111827", background: "#fff" }}
+            >
+              {STATES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "0.5px", fontWeight: "700", opacity: 0.8, display: "block", marginBottom: "4px" }}>
+              Farmer Location Reference
+            </label>
+            <div style={{ background: "rgba(255,255,255,0.9)", color: "#166534", padding: "0.6rem", borderRadius: "8px", fontSize: "0.9rem", fontWeight: "700", display: "flex", alignItems: "center", gap: "6px" }}>
+              <MapPin size={16} />
+              <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {userLocation.name}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation Tabs */}
+      <div style={{ display: "flex", gap: "8px", borderBottom: "2px solid #e5e7eb", marginBottom: "1.5rem", overflowX: "auto", paddingBottom: "4px" }}>
+        {[
+          { id: "overview", label: "Live Prices & Mandis", icon: Layers },
+          { id: "advisory", label: "AI Buy / Sell Recommendation", icon: Sparkles },
+          { id: "nearest", label: "Nearest Markets & Map", icon: MapPin },
+          { id: "trends", label: "Price History Trends", icon: TrendingUp },
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "0.75rem 1.25rem",
+                borderRadius: "8px 8px 0 0",
+                border: "none",
+                background: isActive ? "#166534" : "transparent",
+                color: isActive ? "#fff" : "#4b5563",
+                fontWeight: "700",
+                cursor: "pointer",
+                borderBottom: isActive ? "3px solid #15803d" : "3px solid transparent",
+                transition: "all 0.2s",
+                whiteSpace: "nowrap",
+              }}
+            >
+              <Icon size={18} />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Key Metric Snapshot */}
+      {metrics && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem", marginBottom: "1.75rem" }}>
+          <div style={{ background: "#fff", padding: "1.25rem", borderRadius: "12px", border: "1px solid #e5e7eb", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
+            <span style={{ fontSize: "0.85rem", color: "#6b7280", fontWeight: "600" }}>Highest Mandi Price</span>
+            <div style={{ fontSize: "1.8rem", fontWeight: "800", color: "#166534", marginTop: "4px" }}>
+              ₹{metrics.maxP} <span style={{ fontSize: "0.9rem", color: "#6b7280", fontWeight: "500" }}>/ Qtl</span>
+            </div>
+            <p style={{ margin: "4px 0 0 0", fontSize: "0.8rem", color: "#15803d", fontWeight: "600" }}>
+              🏆 {metrics.topMarket?.market} ({metrics.topMarket?.district})
+            </p>
+          </div>
+
+          <div style={{ background: "#fff", padding: "1.25rem", borderRadius: "12px", border: "1px solid #e5e7eb", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
+            <span style={{ fontSize: "0.85rem", color: "#6b7280", fontWeight: "600" }}>Regional Average Modal Rate</span>
+            <div style={{ fontSize: "1.8rem", fontWeight: "800", color: "#1f2937", marginTop: "4px" }}>
+              ₹{metrics.avgP} <span style={{ fontSize: "0.9rem", color: "#6b7280", fontWeight: "500" }}>/ Qtl</span>
+            </div>
+            <p style={{ margin: "4px 0 0 0", fontSize: "0.8rem", color: "#6b7280" }}>
+              Across {metrics.totalMandis} surveyed APMCs
+            </p>
+          </div>
+
+          <div style={{ background: "#fff", padding: "1.25rem", borderRadius: "12px", border: "1px solid #e5e7eb", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
+            <span style={{ fontSize: "0.85rem", color: "#6b7280", fontWeight: "600" }}>Market Arbitrage Spread</span>
+            <div style={{ fontSize: "1.8rem", fontWeight: "800", color: "#d97706", marginTop: "4px" }}>
+              ₹{metrics.spread} <span style={{ fontSize: "0.9rem", color: "#6b7280", fontWeight: "500" }}>/ Qtl</span>
+            </div>
+            <p style={{ margin: "4px 0 0 0", fontSize: "0.8rem", color: "#b45309", fontWeight: "600" }}>
+              Potential margin gain between lowest & highest
+            </p>
+          </div>
+
+          <div style={{ background: "#fff", padding: "1.25rem", borderRadius: "12px", border: "1px solid #e5e7eb", boxShadow: "0 2px 4px rgba(0,0,0,0.04)" }}>
+            <span style={{ fontSize: "0.85rem", color: "#6b7280", fontWeight: "600" }}>AI Actionable Signal</span>
+            <div style={{ fontSize: "1.4rem", fontWeight: "800", color: advisory?.recommendation === "SELL NOW" ? "#16a34a" : (advisory?.recommendation === "HOLD" ? "#2563eb" : "#d97706"), marginTop: "6px" }}>
+              {advisory?.recommendation || "ANALYZING..."}
+            </div>
+            <p style={{ margin: "4px 0 0 0", fontSize: "0.8rem", color: "#4b5563" }}>
+              Confidence: {advisory?.confidence || "High"}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 1: OVERVIEW & COMPARISON TABLE */}
+      {activeTab === "overview" && (
+        <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #e5e7eb", padding: "1.5rem", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: "1rem", marginBottom: "1.25rem" }}>
+            <div>
+              <h2 style={{ fontSize: "1.3rem", fontWeight: "800", color: "#111827", margin: 0 }}>
+                Live Mandi Prices for {selectedCrop}
+              </h2>
+              <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                Source: Agmarknet / Mandi APMC Network • Updated: Today • Unit: ₹/Quintal
+              </span>
+            </div>
+
+            <div style={{ position: "relative", minWidth: "260px" }}>
+              <Search size={18} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
+              <input
+                type="text"
+                placeholder="Search market or district..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "0.6rem 0.75rem 0.6rem 2.25rem",
+                  borderRadius: "8px",
+                  border: "1px solid #d1d5db",
+                  outline: "none",
+                  fontSize: "0.9rem",
+                }}
+              />
+            </div>
+          </div>
+
+          {loadingPrices ? (
+            <div style={{ textAlign: "center", padding: "3rem", color: "#166534", fontWeight: "700" }}>
+              <RefreshCw size={32} className="spin" style={{ margin: "0 auto 10px auto" }} />
+              <p>Fetching verified agricultural mandi prices...</p>
+            </div>
+          ) : filteredPrices.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "3rem", color: "#6b7280" }}>
+              <AlertCircle size={32} style={{ margin: "0 auto 10px auto", color: "#d97706" }} />
+              <p>No mandi records found matching your filters.</p>
+            </div>
+          ) : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", textAlign: "left", fontSize: "0.9rem" }}>
+                <thead>
+                  <tr style={{ background: "#f9fafb", borderBottom: "2px solid #e5e7eb", color: "#374151" }}>
+                    <th style={{ padding: "0.75rem 1rem" }}>Market (APMC)</th>
+                    <th style={{ padding: "0.75rem 1rem" }}>District & State</th>
+                    <th style={{ padding: "0.75rem 1rem" }}>Variety</th>
+                    <th style={{ padding: "0.75rem 1rem" }}>Min Price</th>
+                    <th style={{ padding: "0.75rem 1rem" }}>Max Price</th>
+                    <th style={{ padding: "0.75rem 1rem", fontWeight: "800", color: "#166534" }}>Modal Price</th>
+                    <th style={{ padding: "0.75rem 1rem" }}>Action / Route</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPrices.map((row) => {
+                    const isTop = metrics && row.modal_price === metrics.maxP;
+                    return (
+                      <tr
+                        key={row.id || `${row.market}-${row.commodity}`}
+                        style={{
+                          borderBottom: "1px solid #f3f4f6",
+                          background: isTop ? "#f0fdf4" : "transparent",
+                        }}
+                      >
+                        <td style={{ padding: "0.85rem 1rem", fontWeight: "700", color: "#111827" }}>
+                          {row.market}
+                          {isTop && (
+                            <span style={{ marginLeft: "8px", background: "#dcfce7", color: "#166534", padding: "2px 8px", borderRadius: "12px", fontSize: "0.75rem", fontWeight: "800" }}>
+                              BEST PRICE
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: "0.85rem 1rem", color: "#4b5563" }}>
+                          {row.district}, {row.state}
+                        </td>
+                        <td style={{ padding: "0.85rem 1rem", color: "#4b5563" }}>{row.variety}</td>
+                        <td style={{ padding: "0.85rem 1rem", color: "#ef4444", fontWeight: "600" }}>₹{row.min_price}</td>
+                        <td style={{ padding: "0.85rem 1rem", color: "#15803d", fontWeight: "600" }}>₹{row.max_price}</td>
+                        <td style={{ padding: "0.85rem 1rem", fontSize: "1.05rem", fontWeight: "800", color: "#166534" }}>
+                          ₹{row.modal_price}
+                        </td>
+                        <td style={{ padding: "0.85rem 1rem" }}>
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(row.market + " " + row.district)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              color: "#2563eb",
+                              textDecoration: "none",
+                              fontWeight: "600",
+                              fontSize: "0.85rem",
+                            }}
+                          >
+                            Map Directions <ExternalLink size={13} />
+                          </a>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 2: AI BUY / SELL RECOMMENDATION */}
+      {activeTab === "advisory" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "1.5rem" }}>
+          <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #e5e7eb", padding: "1.75rem", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "1rem" }}>
+              <div style={{ background: "#dcfce7", color: "#166534", padding: "8px", borderRadius: "10px" }}>
+                <Sparkles size={24} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: "1.3rem", fontWeight: "800", color: "#111827", margin: 0 }}>
+                  AI Market Decision: {selectedCrop}
+                </h2>
+                <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                  Algorithmic advisory based on mandi spreads & momentum
+                </span>
               </div>
             </div>
-          </article>)}
-        </div>
-        {filteredListings.length === 0 && <div className="empty-state">No farm produce matches your search.</div>}
-      </section>
 
-      <section className="panel" id="my-listings">
-        <div className="section-header">
-          <div><p className="eyebrow">Farmer workspace</p><h2>My Farm Listings</h2></div>
-          <button type="button" className="primary-btn" onClick={() => { resetForm(); setShowForm((current) => !current); }}>Create Listing</button>
+            {loadingAdvisory || !advisory ? (
+              <div style={{ textAlign: "center", padding: "2rem" }}>
+                <RefreshCw size={28} className="spin" style={{ color: "#166534" }} />
+                <p>Computing algorithmic recommendation...</p>
+              </div>
+            ) : (
+              <div>
+                <div
+                  style={{
+                    background: advisory.recommendation === "SELL NOW" ? "#f0fdf4" : (advisory.recommendation === "HOLD" ? "#eff6ff" : "#fffbeb"),
+                    border: `2px solid ${advisory.recommendation === "SELL NOW" ? "#86efac" : (advisory.recommendation === "HOLD" ? "#93c5fd" : "#fde68a")}`,
+                    padding: "1.25rem",
+                    borderRadius: "12px",
+                    marginBottom: "1.5rem",
+                  }}
+                >
+                  <span style={{ fontSize: "0.8rem", fontWeight: "800", textTransform: "uppercase", letterSpacing: "0.5px", color: "#4b5563" }}>
+                    Recommendation Signal
+                  </span>
+                  <div style={{ fontSize: "2rem", fontWeight: "900", color: advisory.recommendation === "SELL NOW" ? "#166534" : (advisory.recommendation === "HOLD" ? "#1d4ed8" : "#b45309"), margin: "4px 0" }}>
+                    {advisory.recommendation}
+                  </div>
+                  <p style={{ margin: 0, fontSize: "0.95rem", lineHeight: "1.6", color: "#1f2937", fontWeight: "500" }}>
+                    {advisory.analysis}
+                  </p>
+                </div>
+
+                <h3 style={{ fontSize: "1rem", fontWeight: "800", color: "#111827", marginBottom: "0.75rem" }}>
+                  Key Price Drivers & Data Indicators
+                </h3>
+                <ul style={{ paddingLeft: "1.25rem", margin: "0 0 1.5rem 0", color: "#374151", fontSize: "0.9rem", lineHeight: "1.7" }}>
+                  {advisory.key_drivers?.map((driver, idx) => (
+                    <li key={idx}><strong>{driver}</strong></li>
+                  ))}
+                </ul>
+
+                {advisory.best_market && (
+                  <div style={{ background: "#f8fafc", padding: "1rem", borderRadius: "10px", border: "1px solid #e2e8f0" }}>
+                    <span style={{ fontSize: "0.8rem", color: "#64748b", fontWeight: "700" }}>Recommended Market Destination:</span>
+                    <div style={{ fontSize: "1.1rem", fontWeight: "800", color: "#0f172a", marginTop: "2px" }}>
+                      {advisory.best_market.name} ({advisory.best_market.district}, {advisory.best_market.state})
+                    </div>
+                    <div style={{ fontSize: "0.9rem", color: "#166534", fontWeight: "700", marginTop: "4px" }}>
+                      Current Trading Rate: ₹{advisory.best_market.price}/Quintal ({advisory.best_market.premium_over_lowest} premium)
+                    </div>
+                  </div>
+                )}
+
+                <p style={{ fontSize: "0.75rem", color: "#9ca3af", marginTop: "1rem", lineHeight: "1.4", fontStyle: "italic" }}>
+                  *{advisory.data_disclaimer}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Regional Market Rate Comparison */}
+          <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #e5e7eb", padding: "1.75rem", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }}>
+            <h2 style={{ fontSize: "1.2rem", fontWeight: "800", color: "#111827", marginBottom: "1rem" }}>
+              Mandi Spread Arbitrage Comparison
+            </h2>
+
+            {advisory?.market_comparisons?.map((item, idx) => (
+              <div
+                key={idx}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "0.85rem",
+                  borderBottom: "1px solid #f3f4f6",
+                }}
+              >
+                <div>
+                  <div style={{ fontWeight: "700", color: "#111827", fontSize: "0.95rem" }}>
+                    {item.market}
+                  </div>
+                  <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                    {item.district}, {item.state}
+                  </span>
+                </div>
+
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: "1.1rem", fontWeight: "800", color: "#166534" }}>
+                    ₹{item.modal_price}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: "0.75rem",
+                      fontWeight: "700",
+                      color: item.difference_from_average.startsWith("+") ? "#16a34a" : "#dc2626",
+                    }}
+                  >
+                    {item.difference_from_average} vs avg
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
-        {showForm && <form className="listing-form" onSubmit={handleSubmit}>
-          <label>Product name<input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Fresh Tomato" /></label>
-          <label>Category<select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })}>{produceCategories.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label>Crop variety<input value={form.variety} onChange={(event) => setForm({ ...form, variety: event.target.value })} placeholder="Variety" /></label>
-          <label>Quantity<input required min="0.1" step="0.1" type="number" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} /></label>
-          <label>Unit<select value={form.unit} onChange={(event) => setForm({ ...form, unit: event.target.value })}>{["kg", "quintal", "tonne", "piece", "dozen", "bag"].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label>Price per unit (₹)<input required min="1" type="number" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} /></label>
-          <label>Minimum order<input required min="1" type="number" value={form.minOrder} onChange={(event) => setForm({ ...form, minOrder: event.target.value })} /></label>
-          <label>Quality / Grade<select value={form.grade} onChange={(event) => setForm({ ...form, grade: event.target.value })}>{["A", "B", "C", "Mixed", "Organic"].map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label>Harvest date<input type="date" value={form.harvestDate} onChange={(event) => setForm({ ...form, harvestDate: event.target.value })} /></label>
-          <label>Available from<input value={form.availableFrom} onChange={(event) => setForm({ ...form, availableFrom: event.target.value })} placeholder="Today" /></label>
-          <label>Farm location<input required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Village, District" /></label>
-          <label>Seller / farm name<input required value={form.seller} onChange={(event) => setForm({ ...form, seller: event.target.value })} /></label>
-          <label>Contact phone<input required value={form.contact} onChange={(event) => setForm({ ...form, contact: event.target.value })} /></label>
-          <label>Product image URL<input type="url" value={form.image} onChange={(event) => setForm({ ...form, image: event.target.value })} placeholder="Optional image URL" /></label>
-          <label className="field-wide">Description<textarea required rows="3" value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} placeholder="Describe your produce, quality, and pickup details" /></label>
-          <div className="listing-form-actions"><button type="submit" className="primary-btn">{editingId ? "Save Listing" : "Publish Listing"}</button><button type="button" className="ghost-btn" onClick={() => { setShowForm(false); resetForm(); }}>Cancel</button></div>
-        </form>}
-        {message && <div className="status-banner is-active"><strong>Saved</strong><span>{message}</span></div>}
-        <div className="my-listing-table">
-          {myListings.map((listing) => <div className="my-listing-row" key={listing.id}>
-            <div><strong>{listing.name}</strong><small>{listing.quantity} {listing.unit} · ₹{listing.price}/{listing.unit} · {listing.location}</small></div>
-            <span>{listing.views || 0} views</span><span>{listing.orders || 0} orders</span><span className={`status-badge ${listing.status.toLowerCase()}`}>{listing.status}</span>
-            <div className="inline-actions">
-              <button type="button" className="text-btn" onClick={() => editListing(listing)}>Edit</button>
-              <button type="button" className="text-btn" onClick={() => updateListing(listing.id, { status: listing.status === "Paused" ? "Active" : "Paused" })}>{listing.status === "Paused" ? "Resume" : "Pause"}</button>
-              <button type="button" className="text-btn" onClick={() => updateListing(listing.id, { status: "Sold" })}>Mark Sold</button>
-              <button type="button" className="text-btn danger" onClick={() => deleteListing(listing.id)}>Delete</button>
+      )}
+
+      {/* TAB 3: NEAREST MARKETS & INTERACTIVE MAP */}
+      {activeTab === "nearest" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: "1.5rem" }}>
+          {/* Market List */}
+          <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #e5e7eb", padding: "1.5rem", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)", maxHeight: "650px", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+              <div>
+                <h2 style={{ fontSize: "1.25rem", fontWeight: "800", color: "#111827", margin: 0 }}>
+                  Nearby APMC Mandis
+                </h2>
+                <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+                  Ranked by distance from your current location
+                </span>
+              </div>
+              <button
+                onClick={detectFarmerLocation}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  background: "#dcfce7",
+                  color: "#166534",
+                  border: "none",
+                  fontWeight: "700",
+                  padding: "6px 12px",
+                  borderRadius: "8px",
+                  fontSize: "0.8rem",
+                  cursor: "pointer",
+                }}
+              >
+                <Navigation size={14} /> Refresh GPS
+              </button>
             </div>
-          </div>)}
-          {myListings.length === 0 && <div className="empty-state">Your listings will appear here after you publish a farm product.</div>}
+
+            {loadingNearest ? (
+              <div style={{ textAlign: "center", padding: "2rem" }}>
+                <RefreshCw size={28} className="spin" style={{ color: "#166534" }} />
+                <p>Calculating nearest APMC distances...</p>
+              </div>
+            ) : nearestMarkets.length === 0 ? (
+              <p style={{ color: "#6b7280" }}>No markets detected within radius.</p>
+            ) : (
+              nearestMarkets.map((m) => (
+                <div
+                  key={m.id}
+                  style={{
+                    padding: "1rem",
+                    borderRadius: "12px",
+                    border: "1px solid #f3f4f6",
+                    background: "#fbfcfd",
+                    marginBottom: "0.75rem",
+                    transition: "border 0.2s",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                      <h4 style={{ margin: "0 0 4px 0", fontSize: "1rem", fontWeight: "700", color: "#111827" }}>
+                        {m.name}
+                      </h4>
+                      <div style={{ fontSize: "0.8rem", color: "#6b7280", marginBottom: "4px" }}>
+                        📍 {m.address}
+                      </div>
+                      <div style={{ fontSize: "0.8rem", color: "#4b5563" }}>
+                        🕒 Hours: {m.operating_hours}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <span style={{ background: "#e0f2fe", color: "#0369a1", fontWeight: "800", padding: "3px 8px", borderRadius: "12px", fontSize: "0.8rem" }}>
+                        {m.distance_km} km away
+                      </span>
+                      {m.modal_price && (
+                        <div style={{ marginTop: "6px", fontSize: "1.1rem", fontWeight: "800", color: "#166534" }}>
+                          ₹{m.modal_price} <span style={{ fontSize: "0.75rem", color: "#6b7280" }}>/Qtl</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: "0.75rem", display: "flex", gap: "10px", alignItems: "center" }}>
+                    <a
+                      href={`https://www.google.com/maps/dir/?api=1&destination=${m.latitude},${m.longitude}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        background: "#166534",
+                        color: "#fff",
+                        padding: "6px 12px",
+                        borderRadius: "6px",
+                        fontSize: "0.8rem",
+                        fontWeight: "700",
+                        textDecoration: "none",
+                      }}
+                    >
+                      <Navigation size={13} /> Navigate on Maps
+                    </a>
+                    {m.contact && (
+                      <span style={{ fontSize: "0.8rem", color: "#6b7280" }}>
+                        📞 {m.contact}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Leaflet Interactive Map */}
+          <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #e5e7eb", padding: "1rem", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)", height: "650px", display: "flex", flexDirection: "column" }}>
+            <h3 style={{ fontSize: "1.1rem", fontWeight: "800", color: "#111827", margin: "0 0 0.75rem 0" }}>
+              Interactive Agricultural Market Map
+            </h3>
+            <div style={{ flex: 1, borderRadius: "12px", overflow: "hidden" }}>
+              <MapContainer
+                center={[userLocation.latitude, userLocation.longitude]}
+                zoom={7}
+                style={{ height: "100%", width: "100%" }}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                
+                {/* Farmer Position */}
+                <Marker position={[userLocation.latitude, userLocation.longitude]}>
+                  <Popup>
+                    <strong>Your Location</strong>
+                    <br />
+                    {userLocation.name}
+                  </Popup>
+                </Marker>
+
+                {/* Mandi Pins */}
+                {nearestMarkets.map((m) => (
+                  <Marker key={m.id} position={[m.latitude, m.longitude]}>
+                    <Popup>
+                      <strong>{m.name}</strong>
+                      <br />
+                      Distance: {m.distance_km} km
+                      <br />
+                      {selectedCrop} Rate: ₹{m.modal_price || "N/A"}/Quintal
+                      <br />
+                      <a
+                        href={`https://www.google.com/maps/dir/?api=1&destination=${m.latitude},${m.longitude}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Get Directions
+                      </a>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </div>
+          </div>
         </div>
-      </section>
+      )}
 
-      <section className="panel" id="my-orders">
-        <div className="section-header"><div><p className="eyebrow">Marketplace activity</p><h2>My Orders</h2></div><button type="button" className="ghost-btn" onClick={() => window.location.assign("/delivery")}>Track in Delivery <Truck size={16} /></button></div>
-        <div className="tab-row">{["Fresh From Farmers", "My Orders"].map((tab) => <button type="button" key={tab} className={activeTab === tab ? "tab-btn active" : "tab-btn"} onClick={() => setActiveTab(tab)}>{tab === "Fresh From Farmers" ? "Browse Produce" : `My Orders (${myOrders.length})`}</button>)}</div>
-        {activeTab === "My Orders" && <div className="order-list">
-          {myOrders.map((order) => <article className="order-card" key={order.id}><div className="order-heading"><strong>{order.id}</strong><span className="status-badge">{order.status}</span></div><div className="order-main"><ShoppingBasket size={20} /><div><strong>{order.product}</strong><p>{order.quantity} · {order.seller || "Local seller"}</p></div><strong className="order-price">{order.price}</strong></div></article>)}
-          {myOrders.length === 0 && <div className="empty-state">Demo purchases and orders will appear here.</div>}
-        </div>}
-        {activeTab === "Fresh From Farmers" && <p className="marketplace-hint">Publish a listing above, or browse active produce listings in Fresh From Farmers.</p>}
-      </section>
+      {/* TAB 4: HISTORICAL TRENDS */}
+      {activeTab === "trends" && (
+        <div style={{ background: "#fff", borderRadius: "16px", border: "1px solid #e5e7eb", padding: "1.75rem", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }}>
+          <div style={{ marginBottom: "1.5rem" }}>
+            <h2 style={{ fontSize: "1.3rem", fontWeight: "800", color: "#111827", margin: "0 0 4px 0" }}>
+              14-Day Price & Arrival Trends for {selectedCrop}
+            </h2>
+            <span style={{ fontSize: "0.85rem", color: "#6b7280" }}>
+              Daily modal auction prices (₹/Quintal) and mandi arrivals (tonnes)
+            </span>
+          </div>
 
-      <section className="panel"><div className="section-header"><div><p className="eyebrow">Farm inputs</p><h2>Agricultural Supplies</h2></div><a className="primary-btn" href="/products">Browse supplies</a></div><p>Seeds, soil care, crop protection, irrigation, tools, equipment, harvest and storage supplies are available in the marketplace catalog.</p></section>
-      {toast && <div className="toast" role="status">{toast}</div>}
+          <div style={{ width: "100%", height: "380px" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={trendData} margin={{ top: 10, right: 30, left: 10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="date" stroke="#6b7280" />
+                <YAxis stroke="#6b7280" unit="₹" />
+                <Tooltip
+                  formatter={(value, name) => [
+                    `₹${value}/Quintal`,
+                    name === "modal_price" ? "Modal Price" : (name === "max_price" ? "Max Price" : "Min Price")
+                  ]}
+                />
+                <Legend />
+                <Line type="monotone" dataKey="max_price" stroke="#10b981" name="Max Price" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="modal_price" stroke="#166534" name="Modal Price" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 8 }} />
+                <Line type="monotone" dataKey="min_price" stroke="#f87171" name="Min Price" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-export default Market;
