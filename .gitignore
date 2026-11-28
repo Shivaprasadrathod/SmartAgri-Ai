@@ -1,9 +1,50 @@
 # Environment variables
+.env
+.env.*
+!.env.example
 backend/.env
+frontend/.env
 
-# Python virtual environment
+# Python virtual environments & cache
+.venv/
+venv/
 backend/venv/
-
-# Python cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Node / Frontend build artifacts
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+build/
+frontend/build/
+
+# Logs & OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE / Editor temporary files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local databases, backups & dumps
+*.db
+*.sqlite
+*.sqlite3
+*.sql
+*.dump
+
+# Secrets & private keys
+*.pem
+*.key
+*.crt

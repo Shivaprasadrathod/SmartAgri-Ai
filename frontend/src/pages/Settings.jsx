@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bell, MapPin, ShieldCheck, Tractor } from "lucide-react";
+import { api, getAuthToken } from "../services/api";
 
 const defaultSettings = {
 	name: "Ramesh Kumar",
@@ -28,6 +29,15 @@ function Settings() {
 		localStorage.setItem("smartagri-settings", JSON.stringify(settings));
 	}, [settings]);
 
+	useEffect(() => {
+		if (!getAuthToken()) return;
+		api.getSettings()
+			.then((remote) => {
+				if (remote) setSettings((prev) => ({ ...prev, ...remote }));
+			})
+			.catch(() => {});
+	}, []);
+
 	const handleChange = (event) => {
 		const { name, value } = event.target;
 		setSettings((current) => ({ ...current, [name]: value }));
@@ -37,8 +47,18 @@ function Settings() {
 		setSettings((current) => ({ ...current, [key]: !current[key] }));
 	};
 
-	const saveSettings = (event) => {
+	const saveSettings = async (event) => {
 		event.preventDefault();
+		if (getAuthToken()) {
+			try {
+				await api.updateSettings(settings);
+				setMessage("Profile settings saved to database.");
+				return;
+			} catch (err) {
+				setMessage(err.message || "Saved locally; server sync failed.");
+				return;
+			}
+		}
 		setMessage("Profile settings saved successfully.");
 	};
 

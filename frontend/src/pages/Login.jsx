@@ -59,7 +59,7 @@ export default function Login() {
         return;
       }
 
-      loginUser(data.user);
+      loginUser(data.user, data.access_token);
       setSuccess("Login successful! Redirecting to dashboard…");
       setTimeout(() => navigate(redirectTo, { replace: true }), 600);
     } catch (err) {

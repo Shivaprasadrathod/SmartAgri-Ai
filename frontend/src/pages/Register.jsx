@@ -30,7 +30,7 @@ export default function Register() {
       // Automatically log in after registration
       try {
         const loginData = await api.login(email, password);
-        loginUser(loginData.user);
+        loginUser(loginData.user, loginData.access_token);
         setTimeout(() => navigate(redirectTo, { replace: true }), 600);
       } catch {
         setSuccess("Account created successfully! Please sign in.");

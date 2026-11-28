@@ -53,7 +53,7 @@ function Delivery() {
           <h1>Agri Delivery</h1>
           <p>Track every agricultural order and delivery movement.</p>
         </div>
-        <img src="C:\Users\SHIVAPRASAD RATHOD\Downloads\ChatGPT Image Oct 1, 2026, 07_09_42 PM.png" alt="Delivery logistics" />
+        <img src="/hero.png" alt="Delivery logistics" />
       </div>
 
       <div className="stat-grid compact-grid">

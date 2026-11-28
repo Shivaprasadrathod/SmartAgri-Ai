@@ -54,11 +54,14 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const loginUser = useCallback((userData) => {
+  const loginUser = useCallback((userData, accessToken = null) => {
     setUser(userData);
     setIsGuest(false);
     localStorage.setItem("smartagri-auth-mode", "user");
     localStorage.setItem("smartagri-user", JSON.stringify(userData));
+    if (accessToken) {
+      localStorage.setItem("smartagri-token", accessToken);
+    }
     // Also keep legacy "user" key for backward compatibility with Dashboard
     localStorage.setItem("user", JSON.stringify(userData));
   }, []);
@@ -68,6 +71,7 @@ export function AuthProvider({ children }) {
     setIsGuest(true);
     localStorage.setItem("smartagri-auth-mode", "guest");
     localStorage.removeItem("smartagri-user");
+    localStorage.removeItem("smartagri-token");
     localStorage.removeItem("user");
   }, []);
 
@@ -76,6 +80,7 @@ export function AuthProvider({ children }) {
     setIsGuest(false);
     localStorage.removeItem("smartagri-auth-mode");
     localStorage.removeItem("smartagri-user");
+    localStorage.removeItem("smartagri-token");
     localStorage.removeItem("user");
   }, []);
 
